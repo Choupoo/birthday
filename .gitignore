@@ -1,6 +1,8 @@
 .env
-.secrets/
+!Happy-Birthday-Card/.env
+.secrets/*
+!.secrets/auth/
+.secrets/auth/*
+!.secrets/auth/.htpasswd
 .DS_Store
 .idea/
-nginx/certs/*.pem
-nginx/certs/*.key

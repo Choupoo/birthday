@@ -2,6 +2,8 @@
 
 每个项目独立运行，通过 Nginx 按域名转发。项目容器不发布宿主机端口，页面和静态资源统一使用 Basic Auth 鉴权。
 
+部署所需的项目 `.env`、`local/` 素材、证书、私钥及账号哈希统一随 Git 仓库交付，不需要单独上传。仓库包含私钥和个人素材，应使用受控的私有仓库。
+
 | 域名 | 用途 |
 | --- | --- |
 | `https://choup.app` | 暂停导航页，所有路径返回 404 |
@@ -27,11 +29,11 @@ nginx/
     birthday.conf             # 生日容器内部静态服务配置
   html/index.html             # 已停用的导航页源码，未挂载到容器
   certs/
-    choup.app.pem             # Cloudflare Origin CA 证书（不入 Git）
-    choup.app.key             # 私钥（不入 Git）
+    choup.app.pem             # Cloudflare Origin CA 证书（随仓库交付）
+    choup.app.key             # 私钥（随私有仓库交付）
 .secrets/
-  auth/.htpasswd              # bcrypt 账号文件（不入 Git）
-  credentials.txt             # 初始账号密码（不入 Git、不挂载容器）
+  auth/.htpasswd              # bcrypt 账号文件（随私有仓库交付）
+  credentials.txt             # 本地初始密码记录（不入 Git，部署不需要）
 ```
 
 项目 Dockerfile 只构建网页；内部 Nginx 配置由 Compose 从 `nginx/projects/` 只读挂载。证书也以只读方式挂载，不写入镜像。
@@ -40,16 +42,26 @@ nginx/
 
 需要 Docker、Docker Compose、Docker Buildx 和 OpenSSL。用 `docker buildx version` 检查构建组件；macOS Homebrew 用户缺少时可运行 `brew install docker-buildx`。
 
-1. 上传整个目录，或拉取仓库。`Happy-Birthday-Card/local/` 素材现在允许纳入 Git；首次需在本机提交并推送，服务器才能拉取。另确认以下不入 Git 的文件已安全传到服务器：
-   - `Happy-Birthday-Card/.env`；其中 `PIC` 是 `local/` 内的图片文件名。
-   - `nginx/certs/choup.app.pem` 和 `nginx/certs/choup.app.key`。PEM 首尾行不要保留聊天粘贴时的前导反斜杠。
-   - `.secrets/auth/.htpasswd`，用于沿用当前账号；如果不复制，在服务器执行 `sh scripts/init-auth.sh admin` 生成新账号。已有账号时不用再次初始化。
+1. 首次在本机提交部署文件并推送到私有仓库：
+
+   ```sh
+   git add .gitignore README.md Happy-Birthday-Card/.gitignore \
+     Happy-Birthday-Card/.env Happy-Birthday-Card/local \
+     nginx/certs/.gitignore nginx/certs/choup.app.pem nginx/certs/choup.app.key \
+     .secrets/auth/.htpasswd
+   git commit -m "Include deployment configuration and assets"
+   git push
+   ```
+
+   然后在服务器已有仓库中执行 `git pull`，或首次执行 `git clone https://github.com/Choupoo/birthday.git`。访问私有仓库需要使用有权限的 GitHub 凭据或 SSH 密钥。项目 `.env` 中的 `PIC` 是 `local/` 内的图片文件名。
 2. 在服务器根目录设置监听地址和标准端口：
 
    ```sh
    cp .env.production.example .env
-   chmod 700 nginx/certs
+   chmod 700 nginx/certs .secrets
    chmod 600 nginx/certs/choup.app.key
+   chmod 755 .secrets/auth
+   chmod 644 .secrets/auth/.htpasswd
    docker compose config --quiet
    docker compose up -d --build --wait
    docker compose exec nginx nginx -t
@@ -58,7 +70,7 @@ nginx/
    生产配置为 `0.0.0.0:80` 和 `0.0.0.0:443`。服务器这两个端口需要空闲，安全组/防火墙允许入口流量。若已有反向代理占用，需先规划统一入口，不能让两个容器绑定同一端口。
 3. 在 Cloudflare 为 `choup.app` 和 `superlu.choup.app` 配置指向服务器公网地址的 DNS 记录，开启代理（橙云）。只配置实际可用的 A/AAAA 记录。
 4. Cloudflare SSL/TLS 加密模式设为 **Full (strict)**。这张证书是 Origin CA，适合 Cloudflare 到源站；关闭代理后浏览器直连源站会提示不受信任。不要用 Flexible，它会与源站 HTTPS 跳转形成循环。
-5. 打开 `https://superlu.choup.app` 并登录。当前账号在本地 `.secrets/credentials.txt`；初始化脚本生成随机密码，不会覆盖已有账号。主域名 `choup.app` 暂时只返回 404。
+5. 打开 `https://superlu.choup.app` 并使用原有账号密码登录。服务器从 `.secrets/auth/.htpasswd` 读取账号哈希，无需明文密码文件。初始密码记录仍在本机 `.secrets/credentials.txt`；后续改过密码时以新密码为准。主域名 `choup.app` 暂时只返回 404。
 
 当前证书覆盖 `choup.app` 和 `*.choup.app`，有效期至 2041-09-25；通配符仅覆盖一级子域名。本次只配置并验证本地容器，未更改 Cloudflare DNS 或部署到远程服务器。
 
@@ -108,7 +120,7 @@ docker compose build --no-cache birthday
 docker compose up -d --wait
 ```
 
-项目 `.env` 仅作为构建 secret 挂载。姓名、生日等前端使用的值仍会编译进网页，不能放入后端密钥。
+项目 `.env` 已纳入 Git，但仍被 `.dockerignore` 排除出普通构建上下文，只通过 BuildKit secret 挂载供构建使用。姓名、生日等前端使用的值仍会编译进网页，不能放入后端密钥。根目录的 `.env` 只控制当前机器的端口，仍被忽略，可由仓库内 `.env.production.example` 生成。
 
 改密或添加用户（更换命令末尾用户名）：
 
@@ -123,6 +135,8 @@ docker run --rm -it --mount "type=bind,source=$PWD/.secrets/auth,target=/auth" h
 ```
 
 不要加 `-c`，以免覆盖账号文件。改密立即生效；`.secrets/credentials.txt` 仅记录初始密码，改密后自行更新或删除。浏览器可能缓存旧凭据，可用无痕窗口重新登录。
+
+账号哈希现在纳入 Git。在本机增改账号后，提交并推送 `.secrets/auth/.htpasswd`，服务器 `git pull` 后生效；若直接在服务器改密，应同步该改动，避免后续拉取冲突。
 
 ## 新增项目
 
