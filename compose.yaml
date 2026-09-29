@@ -1,0 +1,81 @@
+name: birthday-projects
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  nginx:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${HTTP_PORT:-8080}:80"
+      - "${BIND_ADDRESS:-127.0.0.1}:${HTTPS_PORT:-8443}:443"
+    volumes:
+      - type: bind
+        source: ./nginx/conf.d
+        target: /etc/nginx/conf.d
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./nginx/snippets
+        target: /etc/nginx/snippets
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./nginx/certs
+        target: /etc/nginx/certs
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./.secrets/auth
+        target: /etc/nginx/auth
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      birthday:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks: [projects]
+    logging: *logging
+
+  birthday:
+    build:
+      context: ./Happy-Birthday-Card
+      secrets:
+        - birthday_env
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./nginx/projects/birthday.conf
+        target: /etc/nginx/conf.d/default.conf
+        read_only: true
+        bind:
+          create_host_path: false
+    # No host port: users must go through the authenticated gateway.
+    expose: ["80"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/index.html"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks: [projects]
+    logging: *logging
+
+networks:
+  projects:
+
+secrets:
+  birthday_env:
+    file: ./Happy-Birthday-Card/.env
