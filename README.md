@@ -40,8 +40,8 @@ nginx/
 
 需要 Docker、Docker Compose、Docker Buildx 和 OpenSSL。用 `docker buildx version` 检查构建组件；macOS Homebrew 用户缺少时可运行 `brew install docker-buildx`。
 
-1. 上传整个目录，并确认以下不入 Git 的文件已安全传到服务器：
-   - `Happy-Birthday-Card/.env` 和 `Happy-Birthday-Card/local/` 素材；`PIC` 是 `local/` 内的图片文件名。
+1. 上传整个目录，或拉取仓库。`Happy-Birthday-Card/local/` 素材现在允许纳入 Git；首次需在本机提交并推送，服务器才能拉取。另确认以下不入 Git 的文件已安全传到服务器：
+   - `Happy-Birthday-Card/.env`；其中 `PIC` 是 `local/` 内的图片文件名。
    - `nginx/certs/choup.app.pem` 和 `nginx/certs/choup.app.key`。PEM 首尾行不要保留聊天粘贴时的前导反斜杠。
    - `.secrets/auth/.htpasswd`，用于沿用当前账号；如果不复制，在服务器执行 `sh scripts/init-auth.sh admin` 生成新账号。已有账号时不用再次初始化。
 2. 在服务器根目录设置监听地址和标准端口：
