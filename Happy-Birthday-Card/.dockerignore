@@ -1,0 +1,11 @@
+.git
+.github
+.env
+.env.*
+node_modules
+.parcel-cache
+dist
+**/.DS_Store
+src/index.html
+src/pic.jpeg
+**/*.bak.*
