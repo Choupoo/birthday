@@ -1,0 +1,5 @@
+# Explicit local override; do not add this file to the server startup command.
+services:
+  decotv:
+    ports:
+      - "127.0.0.1:${DECOTV_LOCAL_PORT:-3001}:3000"

@@ -41,6 +41,8 @@ services:
     depends_on:
       birthday:
         condition: service_healthy
+      decotv:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/healthz"]
       interval: 10s
@@ -73,8 +75,62 @@ services:
     networks: [projects]
     logging: *logging
 
+  decotv:
+    # Multi-platform manifest: the same release on ARM64 and AMD64.
+    image: ghcr.io/decohererk/decotv@sha256:4eb7c66455dc29c60087769a74bf4b5a802c296d3db1ccf007cbe771f8ed2307
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./DecoTV/config.env
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      NEXT_PUBLIC_STORAGE_TYPE: kvrocks
+      KVROCKS_URL: redis://decotv-kvrocks:6666
+      NEXT_PUBLIC_AUTH_MODE: password
+      PUBLIC_ALLOW_ADMIN: "false"
+      NEXT_PUBLIC_ENABLE_REGISTRATION: "false"
+    expose: ["3000"]
+    volumes:
+      - decotv-downloads:/app/.cache/ffmpeg-downloads
+    depends_on:
+      decotv-kvrocks:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/login',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks: [projects, decotv-data]
+    logging: *logging
+
+  decotv-kvrocks:
+    image: apache/kvrocks@sha256:9e632c317c83c80d92f1c9d22ac6aa9f64d149e1f04ff2af5f15a5768a01c4b7
+    restart: unless-stopped
+    volumes:
+      - decotv-kvrocks-data:/var/lib/kvrocks
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$$(redis-cli -p 6666 ping)\" = PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    networks: [decotv-data]
+    logging: *logging
+
 networks:
   projects:
+  decotv-data:
+    internal: true
+
+volumes:
+  decotv-kvrocks-data:
+  decotv-downloads:
 
 secrets:
   birthday_env:

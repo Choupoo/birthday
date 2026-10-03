@@ -1,6 +1,6 @@
 # 多项目 Docker Compose
 
-每个项目独立运行，通过 Nginx 按域名转发。项目容器不发布宿主机端口，页面和静态资源统一使用 Basic Auth 鉴权。
+每个项目独立运行，通过 Nginx 按域名转发。服务器上的项目容器不发布宿主机端口，页面和静态资源统一使用 Basic Auth 鉴权。本地可显式加载 `compose.local.yaml`，通过回环地址访问 DecoTV。
 
 部署所需的项目 `.env`、`local/` 素材、证书、私钥及账号哈希统一随 Git 仓库交付，不需要单独上传。仓库包含私钥和个人素材，应使用受控的私有仓库。
 
@@ -8,6 +8,9 @@
 | --- | --- |
 | `https://choup.app` | 暂停导航页，所有路径返回 404 |
 | `https://superlu.choup.app` | Happy Birthday Card，直接访问根路径 `/` |
+| `https://video.choup.app` | DecoTV，独立 Kvrocks 数据库和下载数据卷 |
+
+DecoTV 的登录配置、数据持久化和升级方法见 [DecoTV/README.md](DecoTV/README.md)。本地运行 `docker compose -f compose.yaml -f compose.local.yaml up -d --build --wait` 后可打开 <http://localhost:3001>，使用 `DecoTV/config.env` 中的账号密码。
 
 HTTP 自动跳转 HTTPS，登录框只在 HTTPS 上出现。此前的 `/birthday/` 路径已改为独立子域名。
 
@@ -17,11 +20,16 @@ HTTP 自动跳转 HTTPS，登录框只在 HTTPS 上出现。此前的 `/birthday
 
 ```text
 compose.yaml
+compose.local.yaml            # 显式启用本地 127.0.0.1:3001 入口
+DecoTV/
+  config.env                  # DecoTV 管理员配置，随私有仓库交付
+  README.md                   # DecoTV 部署、数据和升级说明
 nginx/
   conf.d/
     default.conf              # HTTP 跳转、默认站点、内部健康检查
     choup.app.conf             # 主域名 HTTPS 占位，返回 404
     superlu.choup.app.conf     # 生日项目 HTTPS 反向代理
+    video.choup.app.conf       # DecoTV HTTPS / WebSocket / 流式代理
   snippets/
     tls.conf                  # 公共证书和 TLS 配置
     private-site.conf         # 公共鉴权和响应头
@@ -48,7 +56,8 @@ nginx/
    git add .gitignore README.md Happy-Birthday-Card/.gitignore \
      Happy-Birthday-Card/.env Happy-Birthday-Card/local \
      nginx/certs/.gitignore nginx/certs/choup.app.pem nginx/certs/choup.app.key \
-     .secrets/auth/.htpasswd
+     .secrets/auth/.htpasswd compose.yaml compose.local.yaml .env.example \
+     DecoTV nginx/conf.d/default.conf nginx/conf.d/video.choup.app.conf
    git commit -m "Include deployment configuration and assets"
    git push
    ```
@@ -65,12 +74,14 @@ nginx/
    docker compose config --quiet
    docker compose up -d --build --wait
    docker compose exec nginx nginx -t
+   docker compose exec nginx nginx -s reload
    ```
 
    生产配置为 `0.0.0.0:80` 和 `0.0.0.0:443`。服务器这两个端口需要空闲，安全组/防火墙允许入口流量。若已有反向代理占用，需先规划统一入口，不能让两个容器绑定同一端口。
-3. 在 Cloudflare 为 `choup.app` 和 `superlu.choup.app` 配置指向服务器公网地址的 DNS 记录，开启代理（橙云）。只配置实际可用的 A/AAAA 记录。
+3. 在 Cloudflare 为 `choup.app`、`superlu.choup.app` 和 `video.choup.app` 配置指向服务器公网地址的 DNS 记录，开启代理（橙云）。只配置实际可用的 A/AAAA 记录。
 4. Cloudflare SSL/TLS 加密模式设为 **Full (strict)**。这张证书是 Origin CA，适合 Cloudflare 到源站；关闭代理后浏览器直连源站会提示不受信任。不要用 Flexible，它会与源站 HTTPS 跳转形成循环。
 5. 打开 `https://superlu.choup.app` 并使用原有账号密码登录。服务器从 `.secrets/auth/.htpasswd` 读取账号哈希，无需明文密码文件。初始密码记录仍在本机 `.secrets/credentials.txt`；后续改过密码时以新密码为准。主域名 `choup.app` 暂时只返回 404。
+6. 打开 `https://video.choup.app`，先通过同一套 Nginx 鉴权，再用 `DecoTV/config.env` 中的管理员登录应用。DecoTV 的用户与 Nginx 用户独立管理。默认没有播放源，需要在应用后台配置。
 
 当前证书覆盖 `choup.app` 和 `*.choup.app`，有效期至 2041-09-25；通配符仅覆盖一级子域名。本次只配置并验证本地容器，未更改 Cloudflare DNS 或部署到远程服务器。
 
@@ -78,8 +89,13 @@ nginx/
 
 默认只监听本机 HTTP `8080`、HTTPS `8443`，避免与现有服务的 `443` 冲突。可复制 `.env.example` 为 `.env` 调整端口。
 
+DecoTV 本地入口使用下面的启动命令，打开 <http://localhost:3001> 即可；后续更新、重建 DecoTV 时继续带上相同的两个 `-f` 参数。服务器仅使用 `compose.yaml`，不加载本地覆盖文件。
+
 ```sh
-docker compose up -d --build --wait
+docker compose -f compose.yaml -f compose.local.yaml up -d --build --wait
+```
+
+```sh
 docker compose ps
 
 # 应返回 308，跳转到生产 HTTPS 域名。
